@@ -1,0 +1,42 @@
+{
+  "entities": {
+    "SearchEvent": {
+      "title": "Search Event",
+      "description": "An event indicating a recipe search.",
+      "type": "object",
+      "properties": {
+        "dish": { "type": "string" },
+        "vegetarian": { "type": "boolean" },
+        "allergies": { "type": "string" },
+        "cuisine": { "type": "string" },
+        "difficulty": { "type": "string" },
+        "outcome": { "type": "string", "enum": ["success", "error"] },
+        "ip_address": { "type": "string" },
+        "country": { "type": "string" },
+        "visitor_id": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["dish", "outcome", "created_at"]
+    },
+    "PageView": {
+      "title": "Page View",
+      "description": "An event indicating a page view.",
+      "type": "object",
+      "properties": {
+        "path": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["path", "created_at"]
+    }
+  },
+  "firestore": {
+    "searchEvents": {
+      "schema": { "$ref": "#/entities/SearchEvent" },
+      "description": "Stores recipe search events."
+    },
+    "pageViews": {
+      "schema": { "$ref": "#/entities/PageView" },
+      "description": "Stores website page views."
+    }
+  }
+}

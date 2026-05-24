@@ -1,0 +1,14 @@
+packages:
+  "framer-motion": "For polished page transitions and elegant recipe reveal animations"
+
+images:
+  - path: "artifacts/recipe-finder/public/images/hero-bg.png"
+    description: "Subtle abstract background with warm watercolor textures in cream, light orange, and soft yellow, highly blurred, suitable for a food app hero section"
+    aspect_ratio: "16:9"
+  - path: "artifacts/recipe-finder/public/images/empty-plate.png"
+    description: "Minimalist, elegant flat vector illustration of an empty ceramic plate with a fork and knife next to it, warm appetizing colors on a transparent background"
+    aspect_ratio: "1:1"
+
+notes:
+  - "Using useSearchRecipe mutation from @workspace/api-client-react"
+  - "Unsplash source URL used as requested for dynamic food images"

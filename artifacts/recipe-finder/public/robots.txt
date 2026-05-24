@@ -1,0 +1,14 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+
+User-agent: Mediapartners-Google
+Allow: /
+
+User-agent: AdsBot-Google
+Allow: /
+
+User-agent: AdsBot-Google-Mobile
+Allow: /
+
+Sitemap: /sitemap.xml

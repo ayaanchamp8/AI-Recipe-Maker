@@ -1,0 +1,25 @@
+{
+  "name": "ai-studio-applet",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "workspaces": [
+    "artifacts/*",
+    "lib/*",
+    "lib/integrations/*",
+    "scripts"
+  ],
+  "scripts": {
+    "dev": "npm run build --workspace=@workspace/recipe-finder && npm run dev --workspace=@workspace/api-server",
+    "build": "npm run build --workspace=@workspace/recipe-finder && npm run build --workspace=@workspace/api-server",
+    "start": "npm run start --workspace=@workspace/api-server",
+    "lint": "eslint . || true",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "firebase": "^12.13.0"
+  },
+  "devDependencies": {
+    "@firebase/eslint-plugin-security-rules": "^0.0.2"
+  }
+}
