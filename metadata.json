@@ -1,6 +1,6 @@
 {
-  "name": "",
-  "description": "",
+  "name": "AI Recipe Maker",
+  "description": "An AI-powered recipe generator and meal search tool with advanced dietary options and analytics dashboard.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

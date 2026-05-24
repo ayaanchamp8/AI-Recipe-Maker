@@ -8,7 +8,7 @@
 // ============================================================
 
 import { useState, useEffect } from "react";
-import { useSearchRecipe } from "@workspace/api-client-react";
+import { useSearchRecipe, type RecipeSearchRequest } from "@workspace/api-client-react";
 import { SearchHero } from "@/components/search-hero";
 import { RecipeCard } from "@/components/recipe-card";
 import { LoadingSkeleton } from "@/components/loading-skeleton";
@@ -29,6 +29,7 @@ export default function Home() {
   const { bgIndex, setBgIndex } = useBackground();
   const visitorId = useVisitorId();
   const [hasSearched, setHasSearched] = useState(false);
+  const [localRecipe, setLocalRecipe] = useState<any>(null);
   const [allergyDialogOpen, setAllergyDialogOpen] = useState(false);
   const [pendingDish, setPendingDish] = useState("");
   const [dietaryPreference, setDietaryPreference] = useState<"vegan" | "vegetarian" | "non-veg" | null>(null);
@@ -53,7 +54,7 @@ export default function Home() {
 
   // Track page view on mount and ensure it's saved
   useEffect(() => {
-    const api = `${import.meta.env.VITE_API_URL ?? ""}/api`;
+    const api = `${(import.meta.env.VITE_API_URL ?? "").trim()}/api`;
     const trackVisit = async () => {
       try {
         const res = await fetch(`${api}/analytics/track-visit`, {
@@ -100,12 +101,14 @@ export default function Home() {
 
   // Step 1: User submits a dish — open dietary dialog first
   const handleSearch = (dish: string) => {
+    setLocalRecipe(null);
     setPendingDish(dish);
     setAllergyDialogOpen(true);
   };
 
   // Step 2: User confirms dietary preferences — fetch the recipe
   const handleDietaryConfirm = (prefs: DietaryPreferences) => {
+    setLocalRecipe(null);
     setAllergyDialogOpen(false);
     setHasSearched(true);
     setErrorType(null);
@@ -118,7 +121,7 @@ export default function Home() {
         vegetarian: prefs.dietType === "vegan" || prefs.dietType === "vegetarian",
         vegan: prefs.dietType === "vegan",
         visitorId,
-      },
+      } as unknown as RecipeSearchRequest,
     });
   };
 
@@ -132,6 +135,7 @@ export default function Home() {
 
   const handleReset = () => {
     setHasSearched(false);
+    setLocalRecipe(null);
     setErrorType(null);
     setErrorMessage("");
     setDietaryPreference(null);
@@ -158,7 +162,7 @@ export default function Home() {
   const handleSubmitFeedback = async (feedback: { userName: string; rating: number; comment: string }) => {
     if (!searchMutation.data) return;
     
-    const api = `${import.meta.env.VITE_API_URL ?? ""}/api`;
+    const api = `${(import.meta.env.VITE_API_URL ?? "").trim()}/api`;
     try {
       const res = await fetch(`${api}/recipes/feedback`, {
         method: "POST",
@@ -179,6 +183,7 @@ export default function Home() {
   };
 
   const suggestions = ["Pasta Carbonara", "Chicken Tikka Masala", "Mushroom Risotto"];
+  const activeRecipe = localRecipe || searchMutation.data;
 
   return (
     <div className="min-h-screen bg-transparent flex flex-col">
@@ -188,6 +193,11 @@ export default function Home() {
         isPending={searchMutation.isPending}
         currentBgIndex={bgIndex}
         onSelectBg={setBgIndex}
+        onSelectSavedRecipe={(recipe) => {
+          setLocalRecipe(recipe);
+          setHasSearched(true);
+          setErrorType(null);
+        }}
       />
 
       <main className="flex-1 container max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 mt-4 sm:mt-6 md:mt-8 pb-4 sm:pb-6 md:pb-8">
@@ -318,7 +328,7 @@ export default function Home() {
           )}
 
           {/* Success: show recipe */}
-          {hasSearched && searchMutation.isSuccess && searchMutation.data && (
+          {hasSearched && activeRecipe && (
             <motion.div
               key="result"
               initial={{ opacity: 0, y: 32 }}
@@ -328,7 +338,7 @@ export default function Home() {
               className="pt-8"
             >
               <RecipeCard 
-                recipe={searchMutation.data}
+                recipe={activeRecipe}
                 dietType={dietaryPreference}
                 onFeedback={() => setFeedbackOpen(true)}
                 onFeedbackSubmitted={() => setFeedbackSubmitted(true)}

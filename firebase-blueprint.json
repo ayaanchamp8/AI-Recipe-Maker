@@ -27,6 +27,30 @@
         "created_at": { "type": "string", "format": "date-time" }
       },
       "required": ["path", "created_at"]
+    },
+    "SavedRecipe": {
+      "title": "Saved Recipe",
+      "description": "A recipe bookmarked by a user.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "recipe": { "type": "object" },
+        "savedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "recipe", "savedAt"]
+    },
+    "Feedback": {
+      "title": "Feedback",
+      "description": "Feedback submitted on generated recipes.",
+      "type": "object",
+      "properties": {
+        "recipeName": { "type": "string" },
+        "userName": { "type": "string" },
+        "comment": { "type": "string" },
+        "rating": { "type": "integer" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["recipeName", "userName", "rating", "created_at"]
     }
   },
   "firestore": {
@@ -37,6 +61,14 @@
     "pageViews": {
       "schema": { "$ref": "#/entities/PageView" },
       "description": "Stores website page views."
+    },
+    "feedbacks": {
+      "schema": { "$ref": "#/entities/Feedback" },
+      "description": "Stores user recipe feedback events."
+    },
+    "users/{userId}/savedRecipes/{recipeId}": {
+      "schema": { "$ref": "#/entities/SavedRecipe" },
+      "description": "A user's saved recipes."
     }
   }
 }

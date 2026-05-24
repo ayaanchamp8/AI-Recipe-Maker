@@ -25,6 +25,7 @@ export function CookieConsent() {
       const t = setTimeout(() => setVisible(true), 800);
       return () => clearTimeout(t);
     }
+    return;
   }, []);
 
   const save = (choice: ConsentChoice) => {

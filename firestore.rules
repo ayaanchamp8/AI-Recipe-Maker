@@ -1,8 +1,40 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
+    // Reusable helpers for security
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Allow the admin dashboard (via the backend) to read user properties and their saved recipes
+    match /users/{userId} {
       allow read, write: if true;
+      
+      match /savedRecipes/{recipeId} {
+        // Users can save recipes, backend can read recipes for aggregation
+        allow read, write, delete: if true;
+      }
+    }
+
+    // Allow read/write access to these analytics collections because the API server
+    // acts as an unauthenticated client using the client-side configuration.
+    match /searchEvents/{id} {
+      allow read, write: if true;
+    }
+    match /pageViews/{id} {
+      allow read, write: if true;
+    }
+    match /feedbacks/{id} {
+      allow read, write: if true;
+    }
+
+    match /cachedRecipes/{id} {
+      allow read, write: if true;
+    }
+
+    // Default deny for all other client paths
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

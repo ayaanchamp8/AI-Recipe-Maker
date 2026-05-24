@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Clock, Users, ChefHat, Utensils, CheckCircle2, Flame, BadgeCheck, Leaf, Drumstick, MessageSquare, Star, Clover } from "lucide-react";
+import { Clock, Users, ChefHat, Utensils, CheckCircle2, Flame, BadgeCheck, Leaf, Drumstick, MessageSquare, Star, Clover, Heart } from "lucide-react";
 import type { RecipeResult } from "@workspace/api-client-react";
+import { useRecipeStorage } from "@/hooks/use-recipe-storage";
 
 interface RecipeCardProps {
   recipe: RecipeResult;
@@ -23,6 +24,8 @@ const fadeLeft = {
 };
 
 export function RecipeCard({ recipe, dietType, onFeedback, onFeedbackSubmitted }: RecipeCardProps) {
+  const { toggleBookmark, isBookmarked } = useRecipeStorage();
+  const bookmarked = isBookmarked(recipe.name);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const displayAsVegetarian = recipe.isVegetarian;
   const displayAsVegan = dietType === "vegan" && displayAsVegetarian;
@@ -74,11 +77,25 @@ export function RecipeCard({ recipe, dietType, onFeedback, onFeedbackSubmitted }
             )}
           </motion.div>
           <div className="flex gap-2">
+            <motion.button
+              variants={fadeLeft}
+              onClick={() => toggleBookmark(recipe)}
+              className={`px-3 py-2 rounded-lg transition-colors font-medium flex items-center gap-1.5 cursor-pointer ${
+                bookmarked
+                  ? "bg-rose-100 text-rose-700 hover:bg-rose-200"
+                  : "bg-white/90 text-foreground/80 hover:bg-white hover:text-foreground"
+              }`}
+              title={bookmarked ? "Saved to your list" : "Save this recipe"}
+            >
+              <Heart className={`w-5 h-5 ${bookmarked ? "text-rose-500 fill-rose-500" : "text-muted-foreground"}`} />
+              <span className="text-sm hidden sm:inline">{bookmarked ? "Saved" : "Save"}</span>
+            </motion.button>
+
             {onFeedback && (
               <motion.button
                 variants={fadeLeft}
                 onClick={onFeedback}
-                className="px-3 py-2 rounded-lg bg-cyan-100 text-cyan-700 hover:bg-cyan-200 transition-colors font-medium flex items-center gap-1.5"
+                className="px-3 py-2 rounded-lg bg-cyan-100 text-cyan-700 hover:bg-cyan-200 transition-colors font-medium flex items-center gap-1.5 cursor-pointer"
                 title="Share your feedback"
               >
                 <MessageSquare className="w-5 h-5" />
@@ -171,7 +188,7 @@ export function RecipeCard({ recipe, dietType, onFeedback, onFeedbackSubmitted }
               variants={{ visible: { transition: { staggerChildren: 0.045 } } }}
               className="space-y-2 sm:space-y-3"
             >
-              {recipe.ingredients.map((ingredient, index) => (
+              {recipe.ingredients.map((ingredient: string, index: number) => (
                 <motion.li
                   key={index}
                   variants={fadeLeft}
@@ -198,7 +215,7 @@ export function RecipeCard({ recipe, dietType, onFeedback, onFeedbackSubmitted }
               variants={{ visible: { transition: { staggerChildren: 0.055 } } }}
               className="space-y-4 sm:space-y-6"
             >
-              {recipe.steps.map((step, index) => (
+              {recipe.steps.map((step: string, index: number) => (
                 <motion.div
                   key={index}
                   variants={fadeUp}
@@ -227,7 +244,7 @@ export function RecipeCard({ recipe, dietType, onFeedback, onFeedbackSubmitted }
                   💡 Chef's Tips
                 </h4>
                 <ul className="space-y-2 mb-6">
-                  {recipe.tips.map((tip, index) => (
+                  {recipe.tips.map((tip: string, index: number) => (
                     <li key={index} className="text-amber-900/80 flex items-start gap-2 text-sm md:text-base">
                       <span className="text-amber-500 mt-0.5">•</span>
                       {tip}
