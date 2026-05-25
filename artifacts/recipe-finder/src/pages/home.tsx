@@ -9,6 +9,8 @@
 
 import { useState, useEffect } from "react";
 import { useSearchRecipe, type RecipeSearchRequest } from "@workspace/api-client-react";
+import { useMutation } from "@tanstack/react-query";
+import { getSuggestDishesUrl, SuggestDishesRequest } from "@workspace/api-client-react";
 import { SearchHero } from "@/components/search-hero";
 import { RecipeCard } from "@/components/recipe-card";
 import { LoadingSkeleton } from "@/components/loading-skeleton";
@@ -35,10 +37,29 @@ export default function Home() {
   const [dietaryPreference, setDietaryPreference] = useState<"vegan" | "vegetarian" | "non-veg" | null>(null);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  
+  const [suggestedDishes, setSuggestedDishes] = useState<{name: string, description: string}[] | null>(null);
 
   // Track the last error type so we can show a targeted message
   const [errorType, setErrorType] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>("");
+
+  const suggestMutation = useMutation({
+    mutationFn: async (ingredients: string[]) => {
+      const res = await fetch(getSuggestDishesUrl(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ingredients })
+      });
+      if (!res.ok) throw new Error("Failed to suggest dishes");
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      if (data && data.suggestions) {
+        setSuggestedDishes(data.suggestions);
+      }
+    }
+  });
 
   // Initialise AdSense slot on mount — only if a real publisher + slot is
   // configured AND the user has not rejected cookies. Pushing a request with
@@ -136,6 +157,7 @@ export default function Home() {
   const handleReset = () => {
     setHasSearched(false);
     setLocalRecipe(null);
+    setSuggestedDishes(null);
     setErrorType(null);
     setErrorMessage("");
     setDietaryPreference(null);
@@ -190,7 +212,13 @@ export default function Home() {
 
       <SearchHero
         onSearch={handleSearch}
-        isPending={searchMutation.isPending}
+        onSuggest={(ingredients) => {
+          setHasSearched(false);
+          setLocalRecipe(null);
+          setSuggestedDishes(null);
+          suggestMutation.mutate(ingredients);
+        }}
+        isPending={searchMutation.isPending || suggestMutation.isPending}
         currentBgIndex={bgIndex}
         onSelectBg={setBgIndex}
         onSelectSavedRecipe={(recipe) => {
@@ -203,8 +231,50 @@ export default function Home() {
       <main className="flex-1 container max-w-7xl mx-auto px-3 sm:px-4 md:px-6 lg:px-8 mt-4 sm:mt-6 md:mt-8 pb-4 sm:pb-6 md:pb-8">
         <AnimatePresence mode="wait">
 
+          {/* Suggestions loading state */}
+          {!hasSearched && suggestMutation.isPending && (
+            <motion.div
+              key="suggest-loading"
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.97 }}
+              className="flex justify-center pt-12"
+            >
+              <div className="flex flex-col items-center">
+                <RefreshCw className="w-8 h-8 text-primary animate-spin mb-4" />
+                <p className="text-muted-foreground animate-pulse">Brainstorming delicious ideas from your ingredients...</p>
+              </div>
+            </motion.div>
+          )}
+
+          {/* Suggested dishes list */}
+          {!hasSearched && suggestedDishes && suggestedDishes.length > 0 && (
+            <motion.div
+              key="suggested-dishes-state"
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="max-w-4xl mx-auto pt-6"
+            >
+              <h2 className="text-2xl font-display text-center mb-6">Here are a few ideas!</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {suggestedDishes.map((dish, i) => (
+                  <motion.button
+                    key={i}
+                    whileHover={{ scale: 1.02, y: -2 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => handleSearch(dish.name)}
+                    className="p-5 text-left bg-white border border-border/80 rounded-2xl shadow-sm hover:shadow-md hover:border-primary/40 transition-all duration-200"
+                  >
+                    <h3 className="text-lg font-bold text-foreground mb-1">{dish.name}</h3>
+                    <p className="text-sm text-muted-foreground">{dish.description}</p>
+                  </motion.button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
           {/* Empty state */}
-          {!hasSearched && (
+          {!hasSearched && !suggestMutation.isPending && !suggestedDishes && (
             <motion.div
               key="empty"
               initial={{ opacity: 0, y: 24 }}

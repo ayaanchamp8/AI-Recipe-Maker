@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type SubmitRecipeFeedback201 = {
-  success: boolean;
-};
+export interface SuggestDishesRequest {
+  /** List of ingredients */
+  ingredients: string[];
+}

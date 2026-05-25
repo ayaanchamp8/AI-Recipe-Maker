@@ -58,6 +58,32 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /recipes/suggest:
+    post:
+      operationId: suggestDishes
+      tags: [recipes]
+      summary: Suggest dishes from ingredients
+      description: Returns a list of dish suggestions based on an array of ingredients
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SuggestDishesRequest"
+      responses:
+        "200":
+          description: Suggestions found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuggestDishesResponse"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /recipes/feedback:
     post:
       operationId: submitRecipeFeedback
@@ -186,6 +212,36 @@ components:
         - tips
         - isVegetarian
         - nutrition
+
+    SuggestDishesRequest:
+      type: object
+      properties:
+        ingredients:
+          type: array
+          description: List of ingredients
+          items:
+            type: string
+      required:
+        - ingredients
+
+    SuggestDishesResponse:
+      type: object
+      properties:
+        suggestions:
+          type: array
+          description: Suggested dishes
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              description:
+                type: string
+            required:
+              - name
+              - description
+      required:
+        - suggestions
 
     RecipeFeedbackRequest:
       type: object

@@ -7,12 +7,11 @@
 // ============================================================
 
 import { Router, type IRouter, type Request } from "express";
-import { openai as defaultOpenai, DEFAULT_CHAT_MODEL } from "@workspace/integrations-openai-ai-server";
-import OpenAI from "openai";
 import { SearchRecipeBody, SearchRecipeResponse } from "@workspace/api-zod";
 import { pool } from "@workspace/db";
 import { db } from "../firebase";
 import { collection, addDoc, getDocs, query, where, limit as fsLimit, serverTimestamp } from "firebase/firestore";
+import { openai, DEFAULT_CHAT_MODEL, FALLBACK_CHAT_MODEL } from "@workspace/integrations-openai-ai-server";
 
 const router: IRouter = Router();
 
@@ -111,7 +110,7 @@ router.post("/recipes/search", async (req, res) => {
       await trackEvent(req, {
         dish: String(req.body?.dish ?? "").slice(0, 200) || "(invalid)",
         vegetarian: Boolean(req.body?.vegetarian),
-        allergies: typeof req.body?.allergies === "string" ? req.body.allergies : undefined,
+        allergies: typeof req.body?.allergies === "string" ? req.body.allergies.slice(0, 200) : undefined,
         outcome: "invalid_request",
         ipAddress,
         country,
@@ -124,7 +123,9 @@ router.post("/recipes/search", async (req, res) => {
       return;
     }
 
-    const { dish, allergies, vegetarian } = parseResult.data;
+    const { dish: rawDish, allergies: rawAllergies, vegetarian } = parseResult.data;
+    const dish = rawDish.trim().substring(0, 400);
+    const allergies = rawAllergies?.trim().substring(0, 400);
 
     if (!dish.trim()) {
       await trackEvent(req, {
@@ -163,7 +164,10 @@ Requirements:
 - List allergens in tips
 For fictional dishes: {"error":"not_found","message":"Could not find a recipe for that dish."}`;
 
-    const userPrompt = `Create a recipe for "${dish}".${vegClause}${allergyClause}
+    const nameInstruction = `Determine the actual intended dish name based on the user request, fix any spelling or grammar mistakes, and generate a proper, appetizing "name" for the dish.`;
+
+    const userPrompt = `Create a recipe according to this request: "${dish}".${vegClause}${allergyClause}
+${nameInstruction}
 
 CRITICAL: ingredients MUST be an array of STRINGS (not objects). Each ingredient string should include the amount and description.
 steps MUST be array of STRINGS. tips MUST be array of STRINGS.
@@ -218,26 +222,26 @@ Respond with ONLY valid JSON:
       return;
     }
 
-    // --- 3. Call OpenAI with fallback & timeout ---
-    const performChatCompletion = async (clientOptions: OpenAI, modelToUse: string, timeoutMs: number) => {
+    // --- 3. Call AI with fallback & timeout ---
+    const performChatCompletion = async (modelToUse: string, timeoutMs: number) => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
       
       try {
-        const result = await clientOptions.chat.completions.create({
+        const result = await openai.chat.completions.create({
           model: modelToUse,
-          max_tokens: 2500, // Used max_tokens instead of max_completion_tokens for broader compatibility
-          temperature: 0.7,
-          response_format: { type: "json_object" },
           messages: [
             { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
+            { role: "user", content: userPrompt }
           ],
+          response_format: { type: "json_object" },
+          temperature: 0.7,
+          max_tokens: 1500, // Important for openrouter free limits
         }, {
-          signal: controller.signal,
-        } as any);
+          signal: controller.signal
+        });
         clearTimeout(timeoutId);
-        return result;
+        return { rawContent: result.choices[0]?.message?.content || "" };
       } catch (err) {
         clearTimeout(timeoutId);
         throw err;
@@ -250,42 +254,80 @@ Respond with ONLY valid JSON:
       let lastErr: any = new Error("No AI models available");
       let rateLimitErr: any = null;
 
-      // Simplest approach: Use the default AI integration provided by the environment.
-      // If the user's OpenAI quota is exceeded, we must inform them.
+      // We will try multiple AI models
       const strategies = [
-        { client: defaultOpenai, model: DEFAULT_CHAT_MODEL },
-        { client: defaultOpenai, model: "gpt-4o-mini" },
-        { client: defaultOpenai, model: "gemini-2.5-flash" } // for GenAI proxy fallback 
+        { model: DEFAULT_CHAT_MODEL },
+        { model: FALLBACK_CHAT_MODEL },
+        { model: DEFAULT_CHAT_MODEL, sleepMs: 3000 } // Retry fallback
       ];
-      
+
       for (const strategy of strategies) {
+        if (strategy.sleepMs) {
+          await new Promise(resolve => setTimeout(resolve, strategy.sleepMs));
+        }
         try {
-          completion = await performChatCompletion(strategy.client, strategy.model, 15000);
+          completion = await performChatCompletion(strategy.model, 15000);
           success = true;
           break;
         } catch (aiErr: any) {
           lastErr = aiErr;
-          const isRateLimit = aiErr?.status === 429 || aiErr?.type === 'RateLimitError' || aiErr?.name === 'RateLimitError' || aiErr?.code === 'rate_limit_exceeded' || (aiErr?.message && String(aiErr.message).includes('429'));
+          const isRateLimit = aiErr?.status === 429 || aiErr?.status === 403 || aiErr?.type === 'RateLimitError' || aiErr?.name === 'RateLimitError' || aiErr?.code === 'rate_limit_exceeded' || (aiErr?.message && String(aiErr.message).includes('429')) || (aiErr?.message && String(aiErr.message).includes('403'));
           if (isRateLimit) {
              rateLimitErr = aiErr;
-             // Don't break immediately, maybe another model in the list has a separate quota.
+             req.log.info({ model: strategy.model }, `Model API key issue (Quota / Leaked / 403), will try next or fallback.`);
+             continue; // Don't log as warn, it's expected if quota is out.
           }
-          req.log.warn({ msg: aiErr?.message || "AI Error", model: strategy.model }, `Strategy with model ${strategy.model} failed`);
+          // Only warn for non-quota errors
+          req.log.debug({ msg: aiErr?.message || "AI Error", model: strategy.model }, `AI model ${strategy.model} encountered an issue`);
         }
       }
       
       if (!success) {
         if (rateLimitErr) {
-          req.log.warn("Rate limit/quota exceeded. Serving fallback placeholder recipe.");
-          // We provide a fallback object so the user sees *something* on the frontend 
-          // without crashing the UI, while still logging the quota issue.
+          req.log.info("All configured AI models reached their quota. Gracefully falling back to a public recipe API.");
+          try {
+            const mealRes = await fetch(`https://www.themealdb.com/api/json/v1/1/search.php?s=${encodeURIComponent(dish)}`);
+            if (mealRes.ok) {
+              const mealData = await mealRes.json() as any;
+              if (mealData.meals && mealData.meals.length > 0) {
+                const meal = mealData.meals[0];
+                const ingredients = [];
+                for (let i = 1; i <= 20; i++) {
+                  const ingredient = meal[`strIngredient${i}`];
+                  const measure = meal[`strMeasure${i}`];
+                  if (ingredient && ingredient.trim() !== '') {
+                    ingredients.push(`${measure ? measure.trim() + ' ' : ''}${ingredient.trim()}`);
+                  }
+                }
+                const fallbackRecipe = {
+                  name: meal.strMeal,
+                  cookingTime: "30 minutes",
+                  servings: "4 servings",
+                  difficulty: "Medium",
+                  cuisine: meal.strArea || "Global",
+                  description: `A delicious ${meal.strArea || ''} ${meal.strCategory || ''} dish. (Served via Public API fallback since AI is at capacity)`,
+                  ingredients: ingredients,
+                  steps: meal.strInstructions.split(/\\r\\n|\\n/).filter((s: string) => s.trim() !== ''),
+                  tips: ["Original recipe from TheMealDB. Enjoy!"],
+                  isVegetarian: meal.strCategory === 'Vegetarian' || meal.strCategory === 'Vegan',
+                  nutrition: { calories: "N/A", protein: "N/A", carbs: "N/A", fat: "N/A" }
+                };
+                res.json(fallbackRecipe);
+                return;
+              }
+            }
+          } catch (e) {
+            req.log.warn({ err: e }, "TheMealDB fallback failed");
+          }
+          
+          // Original final fallback if TheMealDB also fails/finds nothing
           const fallbackContent = {
             name: `(Quota Exceeded) Let's make ${dish}`,
             cookingTime: "20 minutes",
             servings: "2 servings",
             difficulty: "Medium",
             cuisine: "Global",
-            description: `We're experiencing an API quota error. This happens when the configured OpenAI/Gemini account runs out of billing credits. You can still use this simple placeholder recipe!`,
+            description: `I understand you'd like to see the real AI recipe! However, the default AI API credit quota for this workspace has run out. Since AI models run on cloud servers, they require API keys to work. To fix this instantly, please find the Settings (gear icon) -> Environment Secrets, add a variable named 'GEMINI_API_KEY', and paste a free API key from Google AI Studio.`,
             ingredients: ["1 main ingredient", "2 tbsp oil or butter", "Salt and pepper to taste", "Spices as desired"],
             steps: [
               "Prepare the ingredients.",
@@ -303,7 +345,7 @@ Respond with ONLY valid JSON:
         throw lastErr;
       }
       
-      const rawContent = (completion?.choices?.[0]?.message?.content ?? "").trim();
+      const rawContent = (completion?.rawContent ?? "").trim();
 
       if (!rawContent) {
         req.log.error({ dish, vegetarian }, "AI returned empty content");
@@ -446,6 +488,117 @@ Respond with ONLY valid JSON:
       error: "Internal Server Error",
       message: "Something went wrong. Please try again later.",
     });
+  }
+});
+
+import { SuggestDishesBody, SuggestDishesResponse } from "@workspace/api-zod";
+
+router.post("/recipes/suggest", async (req, res) => {
+  const ipAddress = getClientIp(req);
+  const country = await getCountryFromIp(req, ipAddress);
+
+  try {
+    const parseResult = SuggestDishesBody.safeParse(req.body);
+    if (!parseResult.success) {
+      res.status(400).json({ error: "Bad Request", message: "Invalid ingredients list." });
+      return;
+    }
+
+    const { ingredients } = parseResult.data;
+    if (ingredients.length === 0) {
+      res.status(400).json({ error: "Bad Request", message: "Ingredients list cannot be empty." });
+      return;
+    }
+
+    const systemPrompt = `You are a world-class professional chef. Give exactly 4 appetizing dish suggestions based primarily on the provided ingredients.
+Respond ONLY with valid JSON.
+Format:
+{
+  "suggestions": [
+    { "name": "Dish Name", "description": "Short appetizing description" }
+  ]
+}
+If no dishes can be made at all, return an empty array for suggestions.`;
+
+    const userPrompt = `Ingredients: ${ingredients.join(", ")}`;
+
+    let completion;
+    let success = false;
+    let lastErr: any = new Error("No AI models available");
+
+    const strategies = [
+      { model: DEFAULT_CHAT_MODEL },
+      { model: FALLBACK_CHAT_MODEL },
+      { model: DEFAULT_CHAT_MODEL, sleepMs: 3000 }
+    ];
+
+    const performChatCompletion = async (modelToUse: string, timeoutMs: number) => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const result = await openai.chat.completions.create({
+          model: modelToUse,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
+          ],
+          response_format: { type: "json_object" },
+          temperature: 0.7,
+          max_tokens: 1500,
+        }, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        return { rawContent: result.choices[0]?.message?.content || "" };
+      } catch (err) {
+        clearTimeout(timeoutId);
+        throw err;
+      }
+    };
+
+    for (const strategy of strategies) {
+      if (strategy.sleepMs) {
+        await new Promise(resolve => setTimeout(resolve, strategy.sleepMs));
+      }
+      try {
+        completion = await performChatCompletion(strategy.model, 15000);
+        success = true;
+        break;
+      } catch (aiErr: any) {
+        lastErr = aiErr;
+        const isRateLimit = aiErr?.status === 429 || aiErr?.status === 403 || aiErr?.type === 'RateLimitError' || aiErr?.name === 'RateLimitError' || aiErr?.code === 'rate_limit_exceeded';
+        if (isRateLimit) {
+           req.log.info({ model: strategy.model }, "Rate limit in suggest, trying next");
+           continue;
+        }
+      }
+    }
+
+    if (!success) {
+      req.log.warn({ ingredients }, "Suggest fallback triggered due to AI error");
+      // Fallback response
+      res.json({
+        suggestions: [
+          { name: "Sautéed " + ingredients[0], description: `A simple and quick preparation of your ${ingredients[0]}.` },
+          { name: "Mixed Bowls", description: "Combine your ingredients into a healthy bowl." }
+        ]
+      });
+      return;
+    }
+
+    const rawContent = (completion?.rawContent ?? "").trim();
+    if (!rawContent) throw new Error("Empty AI response");
+
+    const cleaned = rawContent.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    const parsed = JSON.parse(cleaned);
+
+    const result = SuggestDishesResponse.safeParse(parsed);
+    if (!result.success) {
+      throw new Error("Invalid AI response shape for suggestions");
+    }
+
+    res.json(result.data);
+  } catch (err: any) {
+    req.log.error({ err }, "Error in /recipes/suggest");
+    res.status(500).json({ error: "Internal Server Error", message: "Failed to generate suggestions." });
   }
 });
 

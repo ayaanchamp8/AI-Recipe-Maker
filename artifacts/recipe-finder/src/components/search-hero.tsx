@@ -41,13 +41,14 @@ const smoothEase = [0.25, 0.46, 0.45, 0.94] as const;
 
 interface SearchHeroProps {
   onSearch: (dish: string) => void;
+  onSuggest?: (ingredients: string[]) => void;
   isPending: boolean;
   currentBgIndex: number;
   onSelectBg: (index: number) => void;
   onSelectSavedRecipe: (recipe: any) => void;
 }
 
-export function SearchHero({ onSearch, isPending, currentBgIndex, onSelectBg, onSelectSavedRecipe }: SearchHeroProps) {
+export function SearchHero({ onSearch, onSuggest, isPending, currentBgIndex, onSelectBg, onSelectSavedRecipe }: SearchHeroProps) {
   const [dish, setDish] = useState("");
   const [searchMode, setSearchMode] = useState<"dish" | "ingredients">("dish");
   const [ingredientInput, setIngredientInput] = useState("");
@@ -100,8 +101,12 @@ export function SearchHero({ onSearch, isPending, currentBgIndex, onSelectBg, on
       if (activeList.length === 0 || isPending) return;
       
       const sortedIngredients = [...activeList].sort((a, b) => a.localeCompare(b));
-      const queryStr = `Recipe using ingredients: ${sortedIngredients.join(", ")}`;
-      onSearch(queryStr);
+      if (onSuggest) {
+        onSuggest(sortedIngredients);
+      } else {
+        const queryStr = `Recipe using ingredients: ${sortedIngredients.join(", ")}`;
+        onSearch(queryStr);
+      }
     }
   };
 

@@ -2,21 +2,20 @@ import fs from "node:fs";
 import OpenAI, { toFile } from "openai";
 import { Buffer } from "node:buffer";
 
-if (!process.env.AI_INTEGRATIONS_OPENAI_BASE_URL) {
-  console.warn(
-    "AI_INTEGRATIONS_OPENAI_BASE_URL must be set. Did you forget to provision the OpenAI AI integration?",
-  );
+let _openai: OpenAI | null = null;
+function getClient(): OpenAI {
+  if (_openai) return _openai;
+  _openai = new OpenAI({
+    apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+    baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+  });
+  return _openai;
 }
 
-if (!process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
-  console.warn(
-    "AI_INTEGRATIONS_OPENAI_API_KEY must be set. Did you forget to provision the OpenAI AI integration?",
-  );
-}
-
-export const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || "dummy",
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || "http://dummy",
+export const openai = new Proxy({} as OpenAI, {
+  get: (_target, prop: keyof OpenAI) => {
+    return getClient()[prop];
+  },
 });
 
 export async function generateImageBuffer(
