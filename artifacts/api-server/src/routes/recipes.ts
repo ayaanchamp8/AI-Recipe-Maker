@@ -437,6 +437,19 @@ Respond with ONLY valid JSON:
           recipe,
           created_at: serverTimestamp()
         });
+        
+        const isIngredientSearch = dish.startsWith("Recipe using ingredients:");
+        if (isIngredientSearch && recipe.name) {
+          const generatedNameKey = `${recipe.name.toLowerCase().trim()}_V_${vegetarian ? 'y' : 'n'}_A_${allergies?.toLowerCase().trim() || 'none'}`;
+          if (generatedNameKey !== cacheKey) {
+             await addDoc(collection(db, "cachedRecipes"), {
+                cacheKey: generatedNameKey,
+                dish: recipe.name.toLowerCase().trim(),
+                recipe,
+                created_at: serverTimestamp()
+             });
+          }
+        }
       } catch (e) {
         req.log.warn({ err: e }, "Failed to write recipe to cache");
       }
